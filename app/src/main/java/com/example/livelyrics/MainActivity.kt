@@ -97,7 +97,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val qTitle = URLEncoder.encode(title, "UTF-8")
             val qArtist = URLEncoder.encode(artist, "UTF-8")
-            val url = URL("https://lrclib.net")
+            val host = "lrclib.net"
+            val url = URL("https://$host/api/get?track_name=$qTitle&artist_name=$qArtist")
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 8000
             conn.readTimeout = 8000
@@ -118,13 +119,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun parseLrc(lrc: String): List<LyricLine> {
-        val regex = Regex("""\[(\d+):(\d+\.\d+)\](.*)""")
+        val regex = Regex("\\[(\\d+):(\\d+\\.\\d+)\\](.*)")
         return lrc.lines().mapNotNull { line ->
             val match = regex.find(line)
             if (match != null && match.groupValues.size >= 4) {
-                val min = match.groupValues.toLongOrNull() ?: 0L
-                val sec = match.groupValues.toDoubleOrNull() ?: 0.0
-                val text = match.groupValues.trim()
+                val min = match.groupValues.get(1).toLongOrNull() ?: 0L
+                val sec = match.groupValues.get(2).toDoubleOrNull() ?: 0.0
+                val text = match.groupValues.get(3).trim()
                 val ms = (min * 60 * 1000) + (sec * 1000).toLong()
                 LyricLine(ms, text)
             } else null
