@@ -54,6 +54,20 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      - name: Build Release APK
+        run: gradle assembleRelease
+
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: key
+          keyStorePassword: password
+          keyPassword: password
+        continue-on-error: true
+
       - name: Build Debug APK
         run: gradle assembleDebug
 
