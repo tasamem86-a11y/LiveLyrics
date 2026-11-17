@@ -1,0 +1,128 @@
+package com.example.livelyrics
+
+import android.content.Intent
+import android.os.Bundle
+import android.provider.Settings
+import android.widget.Button
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+
+data class LyricLine(val timeMs: Long, val text: String)
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var tvSongInfo: TextView
+    private lateinit var tvLyrics: TextView
+    private lateinit var scrollView: ScrollView
+    private lateinit var btnPermission: Button
+
+    private var currentTrackKey = ""
+    private var parsedLyrics: List<LyricLine> = emptyList()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        tvSongInfo = findViewById(R.id.tvSongInfo)
+        tvLyrics = findViewById(R.id.tvLyrics)
+        scrollView = findViewById(R.id.scrollView)
+        btnPermission = findViewById(R.id.btnPermission)
+
+        btnPermission.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+
+        startTrackingLoop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val enabled = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        btnPermission.visibility = if (enabled) android.view.View.GONE else android.view.View.VISIBLE
+    }
+
+    private fun startTrackingLoop() {
+        lifecycleScope.launch {
+            while (true) {
+                MediaNotificationListener.refreshCurrentPosition()
+                val song = MediaNotificationListener.nowPlaying.value
+
+                if (song.title.isNotEmpty()) {
+                    tvSongInfo.text = "🎵 ${song.title}\n👤 ${song.artist}"
+                    val key = "${song.title}-${song.artist}"
+                    if (key != currentTrackKey) {
+                        currentTrackKey = key
+                        tvLyrics.text = "جاري البحث عن كلمات الأغنية..."
+                        parsedLyrics = fetchSyncedLyrics(song.title, song.artist)
+                    }
+                    updateHighlightedLine(song.positionMs)
+                } else {
+                    tvSongInfo.text = "في انتظار تشغيل أي أغنية..."
+                }
+                delay(400)
+            }
+        }
+    }
+
+    private suspend fun fetchSyncedLyrics(title: String, artist: String): List<LyricLine> = withContext(Dispatchers.IO) {
+        try {
+            val qTitle = URLEncoder.encode(title, "UTF-8")
+            val qArtist = URLEncoder.encode(artist, "UTF-8")
+            val url = URL("https://lrclib.net")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", "LiveLyricsAndroidApp/1.0")
+
+            if (conn.responseCode == 200) {
+                val response = conn.inputStream.bufferedReader().readText()
+                val json = JSONObject(response)
+                val synced = json.optString("syncedLyrics", "")
+                if (synced.isNotEmpty()) return@withContext parseLrc(synced)
+                val plain = json.optString("plainLyrics", "")
+                if (plain.isNotEmpty()) return@withContext listOf(LyricLine(0L, plain))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext listOf(LyricLine(0L, "لم يتم العثور على كلمات متزامنة لهذه الأغنية."))
+    }
+
+    private fun parseLrc(lrc: String): List<LyricLine> {
+        val regex = Regex("""\[(\d+):(\d+\.\d+)\](.*)""")
+        return lrc.lines().mapNotNull { line ->
+            val match = regex.find(line)
+            if (match != null) {
+                val min = match.groupValues.toLong()
+                val sec = match.groupValues.toDouble()
+                val text = match.groupValues.trim()
+                val ms = (min * 60 * 1000) + (sec * 1000).toLong()
+                LyricLine(ms, text)
+            } else null
+        }
+    }
+
+    private fun updateHighlightedLine(positionMs: Long) {
+        if (parsedLyrics.isEmpty()) return
+        val activeIndex = parsedLyrics.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0)
+
+        val displayBuilder = StringBuilder()
+        parsedLyrics.forEachIndexed { index, line ->
+            if (index == activeIndex) {
+                displayBuilder.append("▶ ${line.text} ◀\n\n")
+            } else {
+                displayBuilder.append("${line.text}\n\n")
+            }
+        }
+        tvLyrics.text = displayBuilder.toString()
+    }
+}
