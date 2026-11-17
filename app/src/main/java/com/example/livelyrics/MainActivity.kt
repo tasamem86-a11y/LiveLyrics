@@ -102,9 +102,9 @@ class MainActivity : AppCompatActivity() {
         return lrc.lines().mapNotNull { line ->
             val match = regex.find(line)
             if (match != null) {
-                val min = match.groupValues.toLong()
-                val sec = match.groupValues.toDouble()
-                val text = match.groupValues.trim()
+                val min = match.groupValues[1].toLong()
+                val sec = match.groupValues[2].toDouble()
+                val text = match.groupValues[3].trim()
                 val ms = (min * 60 * 1000) + (sec * 1000).toLong()
                 LyricLine(ms, text)
             } else null
