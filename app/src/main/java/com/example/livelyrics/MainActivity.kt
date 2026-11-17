@@ -3,9 +3,11 @@ package com.example.livelyrics
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.lifecycleScope
@@ -32,45 +34,61 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        try {
+            setContentView(R.layout.activity_main)
 
-        tvSongInfo = findViewById(R.id.tvSongInfo)
-        tvLyrics = findViewById(R.id.tvLyrics)
-        scrollView = findViewById(R.id.scrollView)
-        btnPermission = findViewById(R.id.btnPermission)
+            tvSongInfo = findViewById(R.id.tvSongInfo)
+            tvLyrics = findViewById(R.id.tvLyrics)
+            scrollView = findViewById(R.id.scrollView)
+            btnPermission = findViewById(R.id.btnPermission)
 
-        btnPermission.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            btnPermission.setOnClickListener {
+                try {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                } catch (e: Exception) {
+                    Toast.makeText(this, "افتح الإعدادات -> الإشعارات -> الوصول للإشعارات", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            startTrackingLoop()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
-
-        startTrackingLoop()
     }
 
     override fun onResume() {
         super.onResume()
-        val enabled = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
-        btnPermission.visibility = if (enabled) android.view.View.GONE else android.view.View.VISIBLE
+        try {
+            val enabled = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+            btnPermission.visibility = if (enabled) View.GONE else View.VISIBLE
+        } catch (e: Exception) {
+            btnPermission.visibility = View.VISIBLE
+        }
     }
 
     private fun startTrackingLoop() {
         lifecycleScope.launch {
             while (true) {
-                MediaNotificationListener.refreshCurrentPosition()
-                val song = MediaNotificationListener.nowPlaying.value
+                try {
+                    MediaNotificationListener.refreshCurrentPosition()
+                    val song = MediaNotificationListener.nowPlaying.value
 
-                if (song.title.isNotEmpty()) {
-                    tvSongInfo.text = "🎵 ${song.title}\n👤 ${song.artist}"
-                    val key = "${song.title}-${song.artist}"
-                    if (key != currentTrackKey) {
-                        currentTrackKey = key
-                        tvLyrics.text = "جاري البحث عن كلمات الأغنية..."
-                        parsedLyrics = fetchSyncedLyrics(song.title, song.artist)
+                    if (song.title.isNotEmpty()) {
+                        tvSongInfo.text = "🎵 ${song.title}\n👤 ${song.artist}"
+                        val key = "${song.title}-${song.artist}"
+                        if (key != currentTrackKey) {
+                            currentTrackKey = key
+                            tvLyrics.text = "جاري البحث عن كلمات الأغنية..."
+                            parsedLyrics = fetchSyncedLyrics(song.title, song.artist)
+                        }
+                        updateHighlightedLine(song.positionMs)
+                    } else {
+                        tvSongInfo.text = "في انتظار تشغيل أي أغنية..."
                     }
-                    updateHighlightedLine(song.positionMs)
-                } else {
-                    tvSongInfo.text = "في انتظار تشغيل أي أغنية..."
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                delay(400)
+                delay(500)
             }
         }
     }
@@ -81,6 +99,8 @@ class MainActivity : AppCompatActivity() {
             val qArtist = URLEncoder.encode(artist, "UTF-8")
             val url = URL("https://lrclib.net")
             val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
             conn.setRequestProperty("User-Agent", "LiveLyricsAndroidApp/1.0")
 
             if (conn.responseCode == 200) {
@@ -101,10 +121,10 @@ class MainActivity : AppCompatActivity() {
         val regex = Regex("""\[(\d+):(\d+\.\d+)\](.*)""")
         return lrc.lines().mapNotNull { line ->
             val match = regex.find(line)
-            if (match != null) {
-                val min = match.groupValues[1].toLong()
-                val sec = match.groupValues[2].toDouble()
-                val text = match.groupValues[3].trim()
+            if (match != null && match.groupValues.size >= 4) {
+                val min = match.groupValues.toLongOrNull() ?: 0L
+                val sec = match.groupValues.toDoubleOrNull() ?: 0.0
+                val text = match.groupValues.trim()
                 val ms = (min * 60 * 1000) + (sec * 1000).toLong()
                 LyricLine(ms, text)
             } else null
